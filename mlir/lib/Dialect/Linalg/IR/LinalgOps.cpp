@@ -925,20 +925,32 @@ struct FoldInsertPadIntoFill : public OpRewritePattern<tensor::InsertSliceOp> {
 
     SmallVector<OpFoldResult> lowPads = srcPadOp.getMixedLowPad();
     SmallVector<OpFoldResult> oldOffsets = insertOp.getMixedOffsets();
+    ArrayRef<int64_t> strides = insertOp.getStaticStrides();
+
+    // The new offsets are `offset + low * stride`, which is not affine if the
+    // stride is dynamic. Only fold if there is no low padding in that case.
+    for (auto [low, stride] : llvm::zip_equal(lowPads, strides))
+      if (ShapedType::isDynamic(stride) && !isZeroInteger(low))
+        return failure();
 
     Location loc = insertOp.getLoc();
     MLIRContext *context = getContext();
 
     AffineExpr sym0, sym1;
     bindSymbols(context, sym0, sym1);
-    auto addMap = AffineMap::get(0, 2, {sym0 + sym1}, context);
 
-    // Calculate the new offsets for the insert. It should be the old offsets
-    // plus low padding sizes.
+    // Calculate the new offsets for the insert. Element `low` of the padded
+    // tensor is written to `offset + low * stride` of the destination, which
+    // is where the source of the pad starts.
     SmallVector<OpFoldResult, 4> newOffsets;
-    for (const auto &p : llvm::zip(lowPads, oldOffsets)) {
+    for (auto [low, offset, stride] :
+         llvm::zip_equal(lowPads, oldOffsets, strides)) {
+      if (isZeroInteger(low)) {
+        newOffsets.push_back(offset);
+        continue;
+      }
       newOffsets.push_back(affine::makeComposedFoldedAffineApply(
-          rewriter, loc, addMap, {std::get<0>(p), std::get<1>(p)}));
+          rewriter, loc, sym0 * stride + sym1, {low, offset}));
     }
 
     RankedTensorType srcPadType = srcPadOp.getSourceType();

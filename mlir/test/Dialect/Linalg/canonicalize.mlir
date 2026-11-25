@@ -1233,6 +1233,83 @@ func.func @multi_insert_pad_into_fill_mismatch(%input: tensor<7x123x124xf32>, %a
 
 // -----
 
+// CHECK-LABEL: func @insert_pad_into_fill_strided
+//  CHECK-SAME: (%[[INPUT:.+]]: tensor<2xi32>)
+//       CHECK:   %[[FILL:.+]] = linalg.fill
+//       CHECK:   tensor.insert_slice %[[INPUT]] into %[[FILL]][2] [2] [2]
+func.func @insert_pad_into_fill_strided(%input: tensor<2xi32>) -> tensor<8xi32> {
+  %c0 = arith.constant 0 : i32
+  %pad = tensor.pad %input low[1] high[0] {
+  ^bb0(%arg1: index):
+    tensor.yield %c0 : i32
+  } : tensor<2xi32> to tensor<3xi32>
+  %empty = tensor.empty() : tensor<8xi32>
+  %fill = linalg.fill ins(%c0 : i32) outs(%empty : tensor<8xi32>) -> tensor<8xi32>
+  %0 = tensor.insert_slice %pad into %fill[0] [3] [2] : tensor<3xi32> into tensor<8xi32>
+  return %0: tensor<8xi32>
+}
+
+// -----
+
+//       CHECK: #[[$MAP:.+]] = affine_map<()[s0] -> (s0 * 3 + 1)>
+// CHECK-LABEL: func @insert_pad_into_fill_strided_dynamic
+//  CHECK-SAME: (%[[INPUT:.+]]: tensor<?x?xf32>, %[[LOW0:.+]]: index, %[[LOW1:.+]]: index, %{{.+}}: index)
+//   CHECK-DAG: %[[C0:.+]] = arith.constant 0 : index
+//   CHECK-DAG: %[[C1:.+]] = arith.constant 1 : index
+//       CHECK: %[[FILL:.+]] = linalg.fill
+//       CHECK: %[[OFFSET1:.+]] = affine.apply #[[$MAP]]()[%[[LOW1]]]
+//       CHECK: %[[D0:.+]] = tensor.dim %[[INPUT]], %[[C0]] : tensor<?x?xf32>
+//       CHECK: %[[D1:.+]] = tensor.dim %[[INPUT]], %[[C1]] : tensor<?x?xf32>
+//       CHECK: tensor.insert_slice %[[INPUT]] into %[[FILL]][%[[LOW0]], %[[OFFSET1]]] [%[[D0]], %[[D1]]] [1, 3]
+func.func @insert_pad_into_fill_strided_dynamic(%input: tensor<?x?xf32>, %low0: index, %low1: index, %high1: index) -> tensor<8x384xf32> {
+  %f0 = arith.constant 0.0 : f32
+  %c0 = arith.constant 0 : index
+  %pad = tensor.pad %input low[%low0, %low1] high[%c0, %high1] {
+  ^bb0(%arg3: index, %arg4: index):
+    tensor.yield %f0 : f32
+  } : tensor<?x?xf32> to tensor<8x100xf32>
+  %empty = tensor.empty() : tensor<8x384xf32>
+  %fill = linalg.fill ins(%f0 : f32) outs(%empty : tensor<8x384xf32>) -> tensor<8x384xf32>
+  %0 = tensor.insert_slice %pad into %fill[0, 1] [8, 100] [1, 3] : tensor<8x100xf32> into tensor<8x384xf32>
+  return %0: tensor<8x384xf32>
+}
+
+// -----
+
+// CHECK-LABEL: func @insert_pad_into_fill_dynamic_stride
+func.func @insert_pad_into_fill_dynamic_stride(%input: tensor<2xi32>, %stride: index) -> tensor<8xi32> {
+  %c0 = arith.constant 0 : i32
+  // CHECK: tensor.pad
+  %pad = tensor.pad %input low[1] high[0] {
+  ^bb0(%arg1: index):
+    tensor.yield %c0 : i32
+  } : tensor<2xi32> to tensor<3xi32>
+  %empty = tensor.empty() : tensor<8xi32>
+  %fill = linalg.fill ins(%c0 : i32) outs(%empty : tensor<8xi32>) -> tensor<8xi32>
+  %0 = tensor.insert_slice %pad into %fill[0] [3] [%stride] : tensor<3xi32> into tensor<8xi32>
+  return %0: tensor<8xi32>
+}
+
+// -----
+
+// CHECK-LABEL: func @insert_pad_into_fill_dynamic_stride_zero_low
+//  CHECK-SAME: (%[[INPUT:.+]]: tensor<2xi32>, %[[STRIDE:.+]]: index)
+//       CHECK:   %[[FILL:.+]] = linalg.fill
+//       CHECK:   tensor.insert_slice %[[INPUT]] into %[[FILL]][0] [2] [%[[STRIDE]]]
+func.func @insert_pad_into_fill_dynamic_stride_zero_low(%input: tensor<2xi32>, %stride: index) -> tensor<8xi32> {
+  %c0 = arith.constant 0 : i32
+  %pad = tensor.pad %input low[0] high[1] {
+  ^bb0(%arg1: index):
+    tensor.yield %c0 : i32
+  } : tensor<2xi32> to tensor<3xi32>
+  %empty = tensor.empty() : tensor<8xi32>
+  %fill = linalg.fill ins(%c0 : i32) outs(%empty : tensor<8xi32>) -> tensor<8xi32>
+  %0 = tensor.insert_slice %pad into %fill[0] [3] [%stride] : tensor<3xi32> into tensor<8xi32>
+  return %0: tensor<8xi32>
+}
+
+// -----
+
 func.func @fold_linalgop_with_cast_consumer(%arg0 : tensor<?x?xf32>, %arg1 : tensor<?x?xf32>,
     %arg2 : tensor<?x?xf32>) -> (tensor<4x8xf32>, tensor<?x?xf32>) {
   %0 = linalg.matmul ins(%arg0, %arg1 : tensor<?x?xf32>, tensor<?x?xf32>)
