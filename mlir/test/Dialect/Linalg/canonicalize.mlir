@@ -1381,6 +1381,54 @@ func.func @erase_non_identity_noop(%arg0 : tensor<?x?xf32>, %arg1: tensor<?x?xf3
 
 // -----
 
+#map = affine_map<(d0) -> (d0, 0)>
+func.func @keep_equal_maps_with_constant_result(%arg0 : tensor<4x4xf32>, %arg1: tensor<4x4xf32>) -> tensor<4x4xf32> {
+  %0 = linalg.generic {
+    indexing_maps = [#map, #map],
+    iterator_types = ["parallel"]
+  } ins(%arg0 : tensor<4x4xf32>)
+    outs(%arg1 : tensor<4x4xf32>) {
+  ^bb0(%in: f32, %out: f32):
+    linalg.yield %in: f32
+  } -> tensor<4x4xf32>
+  return %0 : tensor<4x4xf32>
+}
+
+// Do not erase ops whose (equal) indexing maps are not permutations: only the
+// first column of the result is copied from the input.
+// CHECK-LABEL: func @keep_equal_maps_with_constant_result
+//  CHECK-SAME:   (%[[ARG0:.*]]: tensor<4x4xf32>, %[[ARG1:.*]]: tensor<4x4xf32>)
+//       CHECK:   %[[GENERIC:.*]] = linalg.generic
+//  CHECK-SAME:     ins(%[[ARG0]] : tensor<4x4xf32>)
+//  CHECK-SAME:     outs(%[[ARG1]] : tensor<4x4xf32>)
+//       CHECK:   return %[[GENERIC]] : tensor<4x4xf32>
+
+// -----
+
+#map = affine_map<(d0) -> (d0, d0)>
+func.func @keep_equal_maps_with_repeated_dim(%arg0 : tensor<4x4xf32>, %arg1: tensor<4x4xf32>) -> tensor<4x4xf32> {
+  %0 = linalg.generic {
+    indexing_maps = [#map, #map],
+    iterator_types = ["parallel"]
+  } ins(%arg0 : tensor<4x4xf32>)
+    outs(%arg1 : tensor<4x4xf32>) {
+  ^bb0(%in: f32, %out: f32):
+    linalg.yield %in: f32
+  } -> tensor<4x4xf32>
+  return %0 : tensor<4x4xf32>
+}
+
+// Do not erase ops whose (equal) indexing maps are not permutations: only the
+// diagonal of the result is copied from the input.
+// CHECK-LABEL: func @keep_equal_maps_with_repeated_dim
+//  CHECK-SAME:   (%[[ARG0:.*]]: tensor<4x4xf32>, %[[ARG1:.*]]: tensor<4x4xf32>)
+//       CHECK:   %[[GENERIC:.*]] = linalg.generic
+//  CHECK-SAME:     ins(%[[ARG0]] : tensor<4x4xf32>)
+//  CHECK-SAME:     outs(%[[ARG1]] : tensor<4x4xf32>)
+//       CHECK:   return %[[GENERIC]] : tensor<4x4xf32>
+
+// -----
+
 // Just make sure that we don't crash.
 
 // CHECK-LABEL: func @dedeplicate_regression_test

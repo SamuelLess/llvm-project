@@ -1397,11 +1397,10 @@ Speculation::Speculatability GenericOp::getSpeculatability() {
 }
 
 namespace {
-
 /// Remove linalg operations that are just copying the values from inputs to
 /// results. In the memref case, the operation must be copying to and from the
 /// same value. Requirements are:
-/// 1) All iterator types are parallel
+/// 1) All indexing maps are the same permutation.
 /// 2) The body contains just a yield operation with the yielded values being
 ///    the arguments corresponding to the operands.
 template <typename OpTy>
@@ -1410,8 +1409,14 @@ struct EraseIdentityLinalgOp : public OpRewritePattern<OpTy> {
 
   LogicalResult matchAndRewrite(OpTy linalgOp,
                                 PatternRewriter &rewriter) const override {
-    // All indexing maps must be equal. It follows that they are permutations.
-    if (!llvm::all_equal(linalgOp.getIndexingMapsArray()))
+    // All indexing maps must be equal and must be permutations. Equal maps that
+    // are not permutations, e.g. `(d0) -> (d0, 0)` or `(d0) -> (d0, d0)`, only
+    // access a subset of the elements of each operand, so the remaining
+    // elements of the results are those of the inits and not of the inputs.
+    SmallVector<AffineMap> indexingMaps = linalgOp.getIndexingMapsArray();
+    if (!llvm::all_equal(indexingMaps) ||
+        !llvm::all_of(indexingMaps,
+                      [](AffineMap map) { return map.isPermutation(); }))
       return failure();
 
     // Check that the body of the linalg operation is just a linalg.yield
