@@ -900,6 +900,11 @@ struct FoldInsertPadIntoFill : public OpRewritePattern<tensor::InsertSliceOp> {
         int64_t nextStart = insertOp.getStaticOffset(i);
         int64_t nextEnd = nextStart + (insertOp.getStaticSize(i) - 1) *
                                           insertOp.getStaticStride(i);
+        // With a negative stride, the last accessed position is the smallest.
+        if (prevEnd < prevStart)
+          std::swap(prevStart, prevEnd);
+        if (nextEnd < nextStart)
+          std::swap(nextStart, nextEnd);
         if (prevEnd < nextStart || nextEnd < prevStart) {
           disjoint = true;
           break;

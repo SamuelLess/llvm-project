@@ -1310,6 +1310,42 @@ func.func @insert_pad_into_fill_dynamic_stride_zero_low(%input: tensor<2xi32>, %
 
 // -----
 
+// CHECK-LABEL: func @insert_pad_into_fill_negative_stride
+//  CHECK-SAME: (%[[INPUT:.+]]: tensor<3xi32>)
+//       CHECK:   %[[FILL:.+]] = linalg.fill
+//       CHECK:   tensor.insert_slice %[[INPUT]] into %[[FILL]][5] [3] [-1]
+func.func @insert_pad_into_fill_negative_stride(%input: tensor<3xi32>) -> tensor<8xi32> {
+  %c0 = arith.constant 0 : i32
+  %pad = tensor.pad %input low[2] high[0] {
+  ^bb0(%arg1: index):
+    tensor.yield %c0 : i32
+  } : tensor<3xi32> to tensor<5xi32>
+  %empty = tensor.empty() : tensor<8xi32>
+  %fill = linalg.fill ins(%c0 : i32) outs(%empty : tensor<8xi32>) -> tensor<8xi32>
+  %0 = tensor.insert_slice %pad into %fill[7] [5] [-1] : tensor<5xi32> into tensor<8xi32>
+  return %0: tensor<8xi32>
+}
+
+// -----
+
+// CHECK-LABEL: func @multi_insert_pad_into_fill_overlap_negative_stride
+func.func @multi_insert_pad_into_fill_overlap_negative_stride(%input: tensor<3xi32>, %a: tensor<5xi32>) -> tensor<8xi32> {
+  %c0 = arith.constant 0 : i32
+  // CHECK: tensor.pad
+  %pad = tensor.pad %input low[2] high[0] {
+  ^bb0(%arg1: index):
+    tensor.yield %c0 : i32
+  } : tensor<3xi32> to tensor<5xi32>
+  %empty = tensor.empty() : tensor<8xi32>
+  %fill = linalg.fill ins(%c0 : i32) outs(%empty : tensor<8xi32>) -> tensor<8xi32>
+  // %0 writes to [0, 4], which overlaps the padding of %1 at [3, 4].
+  %0 = tensor.insert_slice %a   into %fill[4] [5] [-1] : tensor<5xi32> into tensor<8xi32>
+  %1 = tensor.insert_slice %pad into %0   [3] [5] [1]  : tensor<5xi32> into tensor<8xi32>
+  return %1: tensor<8xi32>
+}
+
+// -----
+
 func.func @fold_linalgop_with_cast_consumer(%arg0 : tensor<?x?xf32>, %arg1 : tensor<?x?xf32>,
     %arg2 : tensor<?x?xf32>) -> (tensor<4x8xf32>, tensor<?x?xf32>) {
   %0 = linalg.matmul ins(%arg0, %arg1 : tensor<?x?xf32>, tensor<?x?xf32>)
